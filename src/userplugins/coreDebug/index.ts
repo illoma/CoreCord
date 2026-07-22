@@ -7,8 +7,8 @@
 import { ApplicationCommandInputType, ApplicationCommandOptionType, findOption, sendBotMessage } from "@api/Commands";
 import { copyToClipboard } from "@utils/clipboard";
 import definePlugin from "@utils/types";
-import { search } from "@webpack";
-import { patchTimings } from "../../webpack/patchWebpack";
+import { search, wreq } from "@webpack";
+import { SYM_PATCHED_BY } from "../../webpack/patchWebpack";
 
 // Developer helper: lets you pull a chunk of Discord's own bundled source straight
 // into your clipboard, without needing DevTools. Handy for writing patches.
@@ -36,25 +36,37 @@ export default definePlugin({
             execute: (args, ctx) => {
                 const filter = findOption<string>(args, "plugin", "").toLowerCase();
 
-                const rows = patchTimings
-                    .filter(([plugin]) => !filter || String(plugin).toLowerCase().includes(filter))
-                    .map(([plugin, moduleId, match]) =>
-                        `\`${plugin}\` → module \`${String(moduleId)}\`\n  ↳ \`${String(match).slice(0, 70)}\``
-                    );
+                // Every factory Vencord actually patched carries the set of plugins that
+                // touched it, so this reflects reality in a normal (non-reporter) build.
+                const byPlugin = new Map<string, string[]>();
+                const factories = (wreq as any)?.m ?? {};
 
-                if (!rows.length) {
+                for (const moduleId in factories) {
+                    const plugins: Set<string> | undefined = factories[moduleId]?.[SYM_PATCHED_BY];
+                    if (!plugins) continue;
+                    for (const plugin of plugins) {
+                        if (filter && !plugin.toLowerCase().includes(filter)) continue;
+                        if (!byPlugin.has(plugin)) byPlugin.set(plugin, []);
+                        byPlugin.get(plugin)!.push(String(moduleId));
+                    }
+                }
+
+                if (!byPlugin.size) {
                     return sendBotMessage(ctx.channel.id, {
                         content: filter
-                            ? `❌ **No patch applied** for a plugin matching \`${filter}\`.\nEither the plugin is disabled, or none of its \`find\`/\`match\` patterns matched.`
-                            : "❌ No patches recorded at all."
+                            ? `❌ **Nothing patched** by a plugin matching \`${filter}\`.\nEither it's disabled, you didn't reload after enabling it, or its \`find\` strings matched no module.`
+                            : "❌ No patched modules found at all."
                     });
                 }
 
-                const text = rows.join("\n");
+                const text = [...byPlugin.entries()]
+                    .map(([plugin, ids]) => `\`${plugin}\` → ${ids.length} module(s): \`${ids.join(", ")}\``)
+                    .join("\n");
+
                 copyToClipboard(text);
 
                 return sendBotMessage(ctx.channel.id, {
-                    content: `✅ **${rows.length}** patch(es) applied${filter ? ` for \`${filter}\`` : ""} (copied to clipboard):\n\n${text.slice(0, 1500)}`
+                    content: `✅ Patched modules${filter ? ` matching \`${filter}\`` : ""} (copied to clipboard):\n\n${text.slice(0, 1500)}`
                 });
             }
         },
