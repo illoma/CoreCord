@@ -8,7 +8,34 @@ import { ApplicationCommandInputType, ApplicationCommandOptionType, findOption, 
 import { copyToClipboard } from "@utils/clipboard";
 import definePlugin from "@utils/types";
 import { search, wreq } from "@webpack";
+import { UserProfileStore, UserStore } from "@webpack/common";
 import { SYM_PATCHED_BY } from "../../webpack/patchWebpack";
+
+/** Describes an object's own keys with a short, circular-safe preview of each value. */
+function describe(obj: any): string {
+    if (obj == null) return "(null)";
+    return Object.keys(obj)
+        .sort()
+        .map(key => {
+            let value: any;
+            try {
+                value = obj[key];
+            } catch {
+                return `${key}: <threw>`;
+            }
+            if (typeof value === "function") return `${key}: <fn>`;
+            if (value == null) return `${key}: ${String(value)}`;
+            if (typeof value === "object") {
+                try {
+                    return `${key}: ${JSON.stringify(value).slice(0, 200)}`;
+                } catch {
+                    return `${key}: <object>`;
+                }
+            }
+            return `${key}: ${String(value).slice(0, 120)}`;
+        })
+        .join("\n");
+}
 
 // Developer helper: lets you pull a chunk of Discord's own bundled source straight
 // into your clipboard, without needing DevTools. Handy for writing patches.
@@ -21,6 +48,44 @@ export default definePlugin({
     enabledByDefault: true,
 
     commands: [
+        {
+            name: "ccprofile",
+            description: "Copy your own user + profile objects to the clipboard (for debugging)",
+            inputType: ApplicationCommandInputType.BUILT_IN,
+            options: [
+                {
+                    name: "user-id",
+                    description: "Inspect someone else instead of yourself",
+                    type: ApplicationCommandOptionType.STRING,
+                    required: false
+                }
+            ],
+            execute: (args, ctx) => {
+                const me = UserStore?.getCurrentUser();
+                const targetId = findOption<string>(args, "user-id", "") || me?.id;
+
+                if (!targetId) {
+                    return sendBotMessage(ctx.channel.id, { content: "❌ Couldn't work out whose profile to read." });
+                }
+
+                const user: any = UserStore?.getUser(targetId);
+                const profile: any = UserProfileStore?.getUserProfile(targetId);
+
+                const dump = [
+                    `===== USER (${targetId}) =====`,
+                    describe(user),
+                    "",
+                    "===== PROFILE =====",
+                    describe(profile)
+                ].join("\n");
+
+                copyToClipboard(dump);
+
+                return sendBotMessage(ctx.channel.id, {
+                    content: `✅ Copied **${dump.length}** chars.\n> user keys: ${user ? Object.keys(user).length : 0} · profile keys: ${profile ? Object.keys(profile).length : 0}${profile ? "" : "\n> ⚠️ profile is empty — open the profile once so Discord fetches it, then retry"}`
+                });
+            }
+        },
         {
             name: "ccpatches",
             description: "List which plugin patches actually applied (and to which module)",
