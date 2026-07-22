@@ -186,8 +186,6 @@ export default definePlugin({
     start() {
         applyAll();
         startObserver();
-        // Give Discord a moment to render the tag, then report what we found.
-        setTimeout(diagnose, 4000);
     },
 
     stop() {
