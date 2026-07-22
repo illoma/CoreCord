@@ -1,37 +1,5 @@
-/* The fake tag pill rendered next to your name */
-.cc-faketag {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    height: 15px;
-    padding: 0 4px;
-    margin: 0 2px;
-    border-radius: 4px;
-    background: var(--cc-accent, #7b2fbe);
-    color: #fff;
-    font-size: 10px;
-    font-weight: 700;
-    line-height: 15px;
-    vertical-align: middle;
-    user-select: none;
-}
-
-.cc-faketag-icon {
-    display: block;
-    width: 12px;
-    height: 12px;
-}
-
-/* Flat white (monochrome) icon variant — turns the colored SVG into a white silhouette */
-.cc-faketag-icon-mono {
-    filter: brightness(0) invert(1);
-}
-
-.cc-faketag-text {
-    letter-spacing: 0.5px;
-}
-
-/* The icon picker grid in plugin settings */
+/* Icon picker grid in plugin settings.
+   The tag itself is rendered natively by Discord — see index.tsx. */
 .cc-faketag-picker {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));

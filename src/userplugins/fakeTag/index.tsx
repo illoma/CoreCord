@@ -6,19 +6,24 @@
 
 import "./style.css";
 
-import { addMemberListDecorator, removeMemberListDecorator } from "@api/MemberListDecorators";
-import { addMessageDecoration, removeMessageDecoration } from "@api/MessageDecorations";
 import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
-import { UserStore } from "@webpack/common";
+import { GuildStore, UserStore } from "@webpack/common";
 
 import { TAG_ICON_NUMBERS, TAG_ICONS } from "./icons";
 
-// NOTE: Purely cosmetic and LOCAL. This renders a tag next to *your own* name on
-// *your* client only, using Vencord's stable decoration APIs (no fragile Discord
-// patches). Nobody else ever sees it — a client mod cannot push a tag to others.
+// NOTE: Purely cosmetic and LOCAL. Only *your* client shows this tag. Other users
+// always see your real profile — a client mod cannot push a tag to anyone else.
+//
+// How this works:
+//  1. We inject a fake `primaryGuild` on the current user, so Discord renders its
+//     OWN native tag pill (correct styling, and it shows up everywhere).
+//  2. The injected badge hash is a unique sentinel, so the native <img> ends up with
+//     a src nobody else can have. A CSS `content: url(...)` rule on that exact src
+//     swaps in the icon you picked. No Discord code is patched.
 
-const DECORATION_KEY = "cc-faketag";
+const SENTINEL = "cctag0000c0r3c0rd0000faketag0000";
+const STYLE_ID = "cc-faketag-icon-style";
 
 function IconPicker() {
     const { icon } = settings.use(["icon"]);
@@ -28,7 +33,7 @@ function IconPicker() {
                 <div
                     key={n}
                     className={"cc-faketag-picker-item" + (icon === n ? " selected" : "")}
-                    onClick={() => { settings.store.icon = n; }}
+                    onClick={() => { settings.store.icon = n; applyAll(); }}
                     role="button"
                 >
                     <img src={TAG_ICONS[n]} width={22} height={22} alt={`Tag icon ${n}`} />
@@ -42,17 +47,14 @@ const settings = definePluginSettings({
     tag: {
         type: OptionType.STRING,
         description: "Tag text shown next to your name (Discord tags are up to 4 chars).",
-        default: "CORE"
-    },
-    color: {
-        type: OptionType.STRING,
-        description: "Pill background color (hex, e.g. #7b2fbe). Leave the icon's own colors intact.",
-        default: "#7b2fbe"
+        default: "CORE",
+        onChange: () => applyAll()
     },
     coloredIcon: {
         type: OptionType.BOOLEAN,
-        description: "Show the icon in its original colors. Turn off for a flat white (monochrome) icon that matches the text.",
-        default: true
+        description: "Show the icon in its original colors. Turn off for a flat white icon.",
+        default: true,
+        onChange: () => applyAll()
     },
     icon: {
         type: OptionType.COMPONENT,
@@ -62,46 +64,68 @@ const settings = definePluginSettings({
     }
 });
 
-function FakeTagPill() {
-    const { tag, icon, color, coloredIcon } = settings.use(["tag", "icon", "color", "coloredIcon"]);
-    const src = TAG_ICONS[icon as number] ?? TAG_ICONS[TAG_ICON_NUMBERS[0]];
-    const text = (tag ?? "").slice(0, 4).toUpperCase();
-
-    return (
-        <span className="cc-faketag" style={{ background: color || "#7b2fbe" }} aria-label={`Tag: ${text}`}>
-            <img
-                className={"cc-faketag-icon" + (coloredIcon ? "" : " cc-faketag-icon-mono")}
-                src={src}
-                width={12}
-                height={12}
-                alt=""
-            />
-            {text && <span className="cc-faketag-text">{text}</span>}
-        </span>
-    );
+/** A real guild we're in, so the tag's hover popout resolves instead of "Unknown Server". */
+function pickGuildId(): string {
+    const guilds = GuildStore?.getGuildsArray?.() ?? [];
+    return guilds[0]?.id ?? "1";
 }
 
-function renderIfSelf(userId?: string) {
-    const me = UserStore.getCurrentUser();
-    return me && userId && userId === me.id ? <FakeTagPill /> : null;
+function applyTagData() {
+    const user = UserStore?.getCurrentUser();
+    if (!user) return;
+
+    (user as any).primaryGuild = {
+        badge: SENTINEL,
+        tag: (settings.store.tag ?? "").slice(0, 4).toUpperCase(),
+        identityEnabled: true,
+        identityGuildId: pickGuildId()
+    };
+}
+
+function applyIconStyle() {
+    const src = TAG_ICONS[settings.store.icon as number] ?? TAG_ICONS[TAG_ICON_NUMBERS[0]];
+
+    let el = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
+    if (!el) {
+        el = document.createElement("style");
+        el.id = STYLE_ID;
+        document.head.appendChild(el);
+    }
+
+    const mono = settings.store.coloredIcon ? "" : "filter:brightness(0) invert(1);";
+    // Swap the native badge image (which points at our sentinel hash) for the chosen icon.
+    el.textContent = `img[src*="${SENTINEL}"]{content:url("${src}");object-fit:contain;${mono}}`;
+}
+
+function applyAll() {
+    applyTagData();
+    applyIconStyle();
+}
+
+function clearAll() {
+    const user = UserStore?.getCurrentUser();
+    if (user) (user as any).primaryGuild = null;
+    document.getElementById(STYLE_ID)?.remove();
 }
 
 export default definePlugin({
     name: "FakeTag",
-    description: "Show a custom server tag (icon + text) next to your OWN name. Cosmetic and local only — nobody else sees it.",
+    description: "Show a custom server tag (icon + text) next to your OWN name, rendered natively by Discord. Cosmetic and local only — nobody else sees it.",
     authors: [{ name: "illoma", id: 0n }],
     tags: ["Fun", "Fake", "CoreCord"],
     enabledByDefault: false,
-    dependencies: ["MessageDecorationsAPI", "MemberListDecoratorsAPI"],
     settings,
 
+    // The user object is rebuilt on a fresh session, so re-apply then.
+    flux: {
+        CONNECTION_OPEN: () => applyAll()
+    },
+
     start() {
-        addMessageDecoration(DECORATION_KEY, props => renderIfSelf(props?.message?.author?.id));
-        addMemberListDecorator(DECORATION_KEY, props => renderIfSelf(props?.user?.id));
+        applyAll();
     },
 
     stop() {
-        removeMessageDecoration(DECORATION_KEY);
-        removeMemberListDecorator(DECORATION_KEY);
+        clearAll();
     }
 });
