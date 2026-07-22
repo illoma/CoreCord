@@ -1,0 +1,98 @@
+/*
+ * CoreCord, a Discord client mod (fork of Vencord)
+ * Copyright (c) 2025 illoma and contributors
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+import { ApplicationCommandInputType, ApplicationCommandOptionType, findOption, sendBotMessage } from "@api/Commands";
+import { copyToClipboard } from "@utils/clipboard";
+import definePlugin from "@utils/types";
+import { search } from "@webpack";
+
+// Developer helper: lets you pull a chunk of Discord's own bundled source straight
+// into your clipboard, without needing DevTools. Handy for writing patches.
+
+export default definePlugin({
+    name: "CoreDebug",
+    description: "Developer helper: copy Discord's internal module source to your clipboard with /ccdump.",
+    authors: [{ name: "illoma", id: 0n }],
+    tags: ["Utility", "CoreCord"],
+    enabledByDefault: true,
+
+    commands: [
+        {
+            name: "ccdump",
+            description: "Copy a slice of Discord's internal source to your clipboard",
+            inputType: ApplicationCommandInputType.BUILT_IN,
+            options: [
+                {
+                    name: "find",
+                    description: "A string that only appears in the module you want",
+                    type: ApplicationCommandOptionType.STRING,
+                    required: true
+                },
+                {
+                    name: "around",
+                    description: "Centre the excerpt on this keyword (optional)",
+                    type: ApplicationCommandOptionType.STRING,
+                    required: false
+                },
+                {
+                    name: "chars",
+                    description: "Characters of context on each side (default 1500)",
+                    type: ApplicationCommandOptionType.INTEGER,
+                    required: false
+                },
+                {
+                    name: "index",
+                    description: "Which matching module to use, if several matched (default 0)",
+                    type: ApplicationCommandOptionType.INTEGER,
+                    required: false
+                }
+            ],
+            execute: (args, ctx) => {
+                const needle = findOption<string>(args, "find", "");
+                const around = findOption<string>(args, "around", "");
+                const chars = findOption<number>(args, "chars", 1500);
+                const index = findOption<number>(args, "index", 0);
+
+                let results: Record<string, Function>;
+                try {
+                    results = search(needle) as any;
+                } catch (err) {
+                    return sendBotMessage(ctx.channel.id, { content: `❌ Search failed: \`${String(err)}\`` });
+                }
+
+                const ids = Object.keys(results);
+                if (!ids.length) {
+                    return sendBotMessage(ctx.channel.id, {
+                        content: `❌ No module contains \`${needle}\`.\nIf it lives in a lazy chunk, open the relevant Discord UI once first, then retry.`
+                    });
+                }
+
+                const id = ids[Math.min(Math.max(index, 0), ids.length - 1)];
+                const source = String(results[id]);
+
+                let excerpt = source;
+                let at = -1;
+                if (around) {
+                    at = source.indexOf(around);
+                    if (at >= 0) {
+                        excerpt = source.slice(Math.max(0, at - chars), at + chars);
+                    }
+                }
+
+                copyToClipboard(excerpt);
+
+                sendBotMessage(ctx.channel.id, {
+                    content: [
+                        `✅ Copied **${excerpt.length}** chars to your clipboard.`,
+                        `> module \`${id}\` — ${ids.length} module(s) matched \`${needle}\``,
+                        `> full source: ${source.length} chars` + (around ? ` · \`${around}\` ${at >= 0 ? `found at ${at}` : "**not found** (copied from the start)"}` : ""),
+                        ids.length > 1 ? `> other modules: \`${ids.slice(0, 8).join(", ")}\` — use \`index:\` to pick another` : ""
+                    ].filter(Boolean).join("\n")
+                });
+            }
+        }
+    ]
+});
