@@ -6,7 +6,62 @@
 
 import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
+import { filters, waitFor } from "@webpack";
 import { UserProfileStore, UserStore } from "@webpack/common";
+
+/* Discord's premium checks live as methods on a utils object that only loads once
+ * you open the profile UI, so we wait for it rather than grabbing it at startup.
+ * Only these client-side UI checks are flipped — nothing here tells Discord's
+ * servers you're a subscriber. */
+const PREMIUM_GATES = [
+    "canUsePremiumProfileCustomization",
+    "canUsePremiumGuildMemberProfile",
+    "canUseCollectibles",
+    "canUseClientThemes",
+    "canUseCustomBackgrounds"
+] as const;
+
+const originalGates = new Map<string, { target: any; fn: Function; }>();
+
+/** Some of these objects expose methods as non-writable props, so try both routes. */
+function forceTrue(target: any, name: string) {
+    const original = target?.[name];
+    if (typeof original !== "function" || originalGates.has(name)) return;
+
+    const stub = () => true;
+    originalGates.set(name, { target, fn: original });
+
+    try {
+        Object.defineProperty(target, name, { value: stub, writable: true, configurable: true, enumerable: true });
+        return;
+    } catch { /* not configurable — fall through */ }
+
+    try {
+        target[name] = stub;
+    } catch { /* nothing else we can do */ }
+}
+
+let gateWaiterStarted = false;
+
+function unlockPremiumGates() {
+    if (gateWaiterStarted || !settings.store.unlockNitroCustomization) return;
+    gateWaiterStarted = true;
+
+    waitFor(filters.byProps("canUsePremiumProfileCustomization"), (mod: any) => {
+        for (const name of PREMIUM_GATES) forceTrue(mod, name);
+    });
+}
+
+function restorePremiumGates() {
+    for (const [name, { target, fn }] of originalGates) {
+        try {
+            Object.defineProperty(target, name, { value: fn, writable: true, configurable: true, enumerable: true });
+        } catch {
+            try { target[name] = fn; } catch { /* give up */ }
+        }
+    }
+    originalGates.clear();
+}
 
 // NOTE: Purely cosmetic and LOCAL. Your profile is rebuilt from the profile store
 // every time Discord refetches it, so rather than writing into the store we
@@ -147,32 +202,9 @@ export default definePlugin({
     enabledByDefault: false,
     settings,
 
-    // Webpack exports are getter-only and non-configurable, so these gates can't be
-    // reassigned at runtime — the export table itself has to be rewritten. Only the
-    // client-side UI checks are flipped; nothing here tells Discord you're a subscriber.
-    patches: [
-        {
-            find: "canUsePremiumProfileCustomization",
-            predicate: () => settings.store.unlockNitroCustomization,
-            replacement: [
-                {
-                    match: /canUsePremiumProfileCustomization:\(\)=>\i/,
-                    replace: "canUsePremiumProfileCustomization:()=>()=>!0"
-                },
-                {
-                    match: /canUsePremiumGuildMemberProfile:\(\)=>\i/,
-                    replace: "canUsePremiumGuildMemberProfile:()=>()=>!0"
-                },
-                {
-                    match: /canUseCollectibles:\(\)=>\i/,
-                    replace: "canUseCollectibles:()=>()=>!0"
-                }
-            ]
-        }
-    ],
-
     start() {
         hookProfileStore();
+        unlockPremiumGates();
         applyBannerStyle();
         swapBannerImages();
         startObserver();
@@ -180,6 +212,7 @@ export default definePlugin({
 
     stop() {
         unhookProfileStore();
+        restorePremiumGates();
         observer?.disconnect();
         observer = null;
         document.getElementById(STYLE_ID)?.remove();
