@@ -1,0 +1,65 @@
+/* The fake tag pill rendered next to your name */
+.cc-faketag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 15px;
+    padding: 0 4px;
+    margin: 0 2px;
+    border-radius: 4px;
+    background: var(--cc-accent, #7b2fbe);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 15px;
+    vertical-align: middle;
+    user-select: none;
+}
+
+.cc-faketag-icon {
+    display: block;
+    width: 12px;
+    height: 12px;
+}
+
+.cc-faketag-text {
+    letter-spacing: 0.5px;
+}
+
+/* The icon picker grid in plugin settings */
+.cc-faketag-picker {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+    gap: 6px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 8px;
+    margin-top: 4px;
+    background: var(--background-secondary, #2b2d31);
+    border-radius: 8px;
+}
+
+.cc-faketag-picker-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    background: var(--background-tertiary, #1e1f22);
+    border: 2px solid transparent;
+    transition: border-color 0.1s ease, background 0.1s ease;
+}
+
+.cc-faketag-picker-item:hover {
+    background: var(--background-modifier-hover, #35373c);
+}
+
+.cc-faketag-picker-item.selected {
+    border-color: var(--cc-accent, #7b2fbe);
+    background: var(--background-modifier-selected, #404249);
+}
+
+.cc-faketag-picker-item img {
+    display: block;
+}
