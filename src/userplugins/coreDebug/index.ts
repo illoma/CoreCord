@@ -8,6 +8,7 @@ import { ApplicationCommandInputType, ApplicationCommandOptionType, findOption, 
 import { copyToClipboard } from "@utils/clipboard";
 import definePlugin from "@utils/types";
 import { search } from "@webpack";
+import { patchTimings } from "../../webpack/patchWebpack";
 
 // Developer helper: lets you pull a chunk of Discord's own bundled source straight
 // into your clipboard, without needing DevTools. Handy for writing patches.
@@ -20,6 +21,43 @@ export default definePlugin({
     enabledByDefault: true,
 
     commands: [
+        {
+            name: "ccpatches",
+            description: "List which plugin patches actually applied (and to which module)",
+            inputType: ApplicationCommandInputType.BUILT_IN,
+            options: [
+                {
+                    name: "plugin",
+                    description: "Only show patches from plugins whose name contains this",
+                    type: ApplicationCommandOptionType.STRING,
+                    required: false
+                }
+            ],
+            execute: (args, ctx) => {
+                const filter = findOption<string>(args, "plugin", "").toLowerCase();
+
+                const rows = patchTimings
+                    .filter(([plugin]) => !filter || String(plugin).toLowerCase().includes(filter))
+                    .map(([plugin, moduleId, match]) =>
+                        `\`${plugin}\` → module \`${String(moduleId)}\`\n  ↳ \`${String(match).slice(0, 70)}\``
+                    );
+
+                if (!rows.length) {
+                    return sendBotMessage(ctx.channel.id, {
+                        content: filter
+                            ? `❌ **No patch applied** for a plugin matching \`${filter}\`.\nEither the plugin is disabled, or none of its \`find\`/\`match\` patterns matched.`
+                            : "❌ No patches recorded at all."
+                    });
+                }
+
+                const text = rows.join("\n");
+                copyToClipboard(text);
+
+                return sendBotMessage(ctx.channel.id, {
+                    content: `✅ **${rows.length}** patch(es) applied${filter ? ` for \`${filter}\`` : ""} (copied to clipboard):\n\n${text.slice(0, 1500)}`
+                });
+            }
+        },
         {
             name: "ccdump",
             description: "Copy a slice of Discord's internal source to your clipboard",
