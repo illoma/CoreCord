@@ -6,7 +6,7 @@
 
 import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
-import { UserStore } from "@webpack/common";
+import { GuildStore, UserStore } from "@webpack/common";
 
 // NOTE: This is purely cosmetic and LOCAL. It only changes what *you* see on
 // your own client. Other users always see your real profile — a client mod
@@ -18,16 +18,45 @@ const settings = definePluginSettings({
         description: "The tag text shown next to your name (Discord tags are 4 chars). Press Ctrl+R after changing.",
         default: "CORE",
         onChange: () => applyTag()
+    },
+    borrowFrom: {
+        type: OptionType.STRING,
+        description: "Guild ID to borrow the tag ICON from (a server you're in that has a Server Tag). Empty = auto-detect. Ctrl+R after changing.",
+        default: "",
+        onChange: () => applyTag()
     }
 });
 
+/**
+ * Discord serves tag badges from its own CDN (guild-tag-badges/{guildId}/{hash}),
+ * so to show a real icon we borrow a real (guildId, badge) pair from a server the
+ * user is already in that has a Server Tag. This also makes the hover popout resolve
+ * to a real guild instead of "Unknown Server".
+ */
+function findBadgeSource(): { guildId: string; badge: string; } {
+    const override = settings.store.borrowFrom?.trim();
+    if (override) {
+        const g = GuildStore?.getGuild(override);
+        return { guildId: override, badge: g?.profile?.badge ?? "" };
+    }
+
+    const guilds = GuildStore?.getGuildsArray?.() ?? [];
+    // prefer a guild that actually has a tag badge -> real icon
+    const withBadge = guilds.find(g => g?.profile?.badge);
+    if (withBadge) return { guildId: withBadge.id, badge: withBadge.profile!.badge! };
+
+    // fallback: any real guild so the popout at least resolves (no icon)
+    const any = guilds[0];
+    return { guildId: any?.id ?? "0", badge: "" };
+}
+
 function buildClan() {
+    const { guildId, badge } = findBadgeSource();
     return {
-        // no badge asset -> Discord renders just the tag text, no (broken) icon
-        badge: "",
+        badge,
         tag: settings.store.tag.slice(0, 4).toUpperCase(),
         identityEnabled: true,
-        identityGuildId: "0"
+        identityGuildId: guildId
     };
 }
 
