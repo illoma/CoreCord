@@ -56,6 +56,21 @@ const settings = definePluginSettings({
                 </div>
             );
         }
+    },
+    frame: {
+        type: OptionType.COMPONENT,
+        description: "Profile frame currently forced on your own profile",
+        default: null as any,
+        component: () => {
+            const { frame } = settings.use(["frame"]);
+            return (
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    {frame
+                        ? `Profile frame: ${(frame as any).title ?? (frame as any).skuId} — pick "None" in Discord's picker to clear it.`
+                        : "No profile frame forced. Pick one in Settings → Profile → Profile frame."}
+                </div>
+            );
+        }
     }
 });
 
@@ -74,13 +89,20 @@ function hookProfileStore() {
     originalGetUserProfile = UserProfileStore.getUserProfile.bind(UserProfileStore);
     (UserProfileStore as any).getUserProfile = (userId: string) => {
         const profile: any = originalGetUserProfile!(userId);
-        const effect = settings.store.effect as any;
         const me = UserStore?.getCurrentUser();
+        if (!profile || !me || userId !== me.id) return profile;
 
-        if (profile && effect && me && userId === me.id) {
+        const effect = settings.store.effect as any;
+        if (effect) {
             profile.profileEffectId = effect.skuId;
             profile.profileEffect = effect;
         }
+
+        const frame = settings.store.frame as any;
+        if (frame) {
+            profile.profileFrame = frame;
+        }
+
         return profile;
     };
 }
@@ -120,6 +142,12 @@ export default definePlugin({
                 {
                     match: /(\i)\.preview\.push\((\i)\)/,
                     replace: "$1.purchase.push($2)"
+                },
+                {
+                    // Discord only passes {skuId, type} along, so grab the full frame
+                    // object here — that's what the profile field expects.
+                    match: /onSelect:\(\)=>(\i)\(\{skuId:(\i)\.skuId,type:(\i)\.(\i)\.PROFILE_FRAME\}\)/,
+                    replace: "onSelect:()=>{$self.applyFrame($2);$1({skuId:$2.skuId,type:$3.$4.PROFILE_FRAME})}"
                 },
                 { ...alwaysOfferApply }
             ]
@@ -168,6 +196,11 @@ export default definePlugin({
     /** Called from the patched profile effect picker when you click one. */
     applyEffect(item: any) {
         settings.store.effect = item ?? null;
+    },
+
+    /** Called from the patched profile frame picker when you click one. */
+    applyFrame(item: any) {
+        settings.store.frame = item ?? null;
     },
 
     flux: {
