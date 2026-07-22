@@ -65,8 +65,15 @@ function fakeConnections() {
     return cacheFakes;
 }
 
-/* Same idea for the merged list — reuse it while neither side has changed. */
-let lastReal: any = null;
+/** Ours are tagged so they can be stripped back out — otherwise merging with an
+ *  already-modified profile would stack the same entries again and again. */
+function isOurs(connection: any) {
+    return typeof connection?.id === "string" && connection.id.startsWith("cc-");
+}
+
+/* Reuse the merged array while neither side has changed. Comparing by identity is no
+ * good here (filtering makes a new array every call), so compare a signature instead. */
+let lastRealKey: string | null = null;
 let lastFakes: any = null;
 let lastMerged: any = null;
 
@@ -85,10 +92,14 @@ function hookProfileStore() {
         const fakes = fakeConnections();
         if (!fakes.length && !settings.store.replaceReal) return profile;
 
-        const real = settings.store.replaceReal ? [] : (profile.connectedAccounts ?? []);
+        // Always rebuild from the genuine connections, never from a list we already
+        // stamped, or the fakes would pile up on every read.
+        const existing: any[] = profile.connectedAccounts ?? [];
+        const real = settings.store.replaceReal ? [] : existing.filter(c => !isOurs(c));
 
-        if (real !== lastReal || fakes !== lastFakes || !lastMerged) {
-            lastReal = real;
+        const realKey = real.map(c => `${c?.type}:${c?.id ?? c?.name}`).join("|");
+        if (realKey !== lastRealKey || fakes !== lastFakes || !lastMerged) {
+            lastRealKey = realKey;
             lastFakes = fakes;
             lastMerged = [...real, ...fakes];
         }
@@ -102,7 +113,8 @@ function unhookProfileStore() {
     if (!originalGetUserProfile) return;
     (UserProfileStore as any).getUserProfile = originalGetUserProfile;
     originalGetUserProfile = null;
-    lastReal = lastFakes = lastMerged = null;
+    lastRealKey = null;
+    lastFakes = lastMerged = null;
 }
 
 export default definePlugin({
