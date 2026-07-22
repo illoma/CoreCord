@@ -48,6 +48,12 @@ export default definePlugin({
                     description: "Which matching module to use, if several matched (default 0)",
                     type: ApplicationCommandOptionType.INTEGER,
                     required: false
+                },
+                {
+                    name: "all",
+                    description: "Dump an excerpt from every matching module instead of just one",
+                    type: ApplicationCommandOptionType.BOOLEAN,
+                    required: false
                 }
             ],
             execute: (args, ctx) => {
@@ -55,6 +61,7 @@ export default definePlugin({
                 const around = findOption<string>(args, "around", "");
                 const chars = findOption<number>(args, "chars", 1500);
                 const index = findOption<number>(args, "index", 0);
+                const all = findOption<boolean>(args, "all", false);
 
                 let results: Record<string, Function>;
                 try {
@@ -67,6 +74,34 @@ export default definePlugin({
                 if (!ids.length) {
                     return sendBotMessage(ctx.channel.id, {
                         content: `❌ No module contains \`${needle}\`.\nIf it lives in a lazy chunk, open the relevant Discord UI once first, then retry.`
+                    });
+                }
+
+                /** Slice `src` around `around`, or from the start when it isn't there. */
+                function excerptOf(src: string) {
+                    if (!around) return src.slice(0, chars * 2);
+                    const at = src.indexOf(around);
+                    return at >= 0
+                        ? src.slice(Math.max(0, at - chars), at + chars)
+                        : src.slice(0, chars);
+                }
+
+                if (all) {
+                    const capped = ids.slice(0, 12);
+                    const dump = capped
+                        .map(id => {
+                            const src = String(results[id]);
+                            return `===== module ${id} (${src.length} chars) =====\n${excerptOf(src)}`;
+                        })
+                        .join("\n\n");
+
+                    copyToClipboard(dump);
+                    return sendBotMessage(ctx.channel.id, {
+                        content: [
+                            `✅ Copied **${dump.length}** chars from **${capped.length}** module(s).`,
+                            `> matched \`${needle}\` in: \`${ids.join(", ")}\``,
+                            ids.length > capped.length ? `> (capped at 12 — raise \`chars\` down or narrow \`find\`)` : ""
+                        ].filter(Boolean).join("\n")
                     });
                 }
 
