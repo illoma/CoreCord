@@ -85,6 +85,9 @@ async function fetchCatalog(): Promise<Deco[]> {
     return [];
 }
 
+/** Remembers the skuId of a decoration picked straight from Discord's own modal. */
+let lastSkuId: string | null = null;
+
 function applyDecoration() {
     const user = UserStore?.getCurrentUser();
     if (!user) return;
@@ -98,7 +101,7 @@ function applyDecoration() {
     const known = catalog.find(d => d.asset === asset);
     (user as any).avatarDecorationData = {
         asset,
-        skuId: known?.skuId ?? "0",
+        skuId: known?.skuId ?? lastSkuId ?? "0",
         expires_at: null
     };
 }
@@ -176,11 +179,46 @@ const settings = definePluginSettings({
 
 export default definePlugin({
     name: "FakeDecoration",
-    description: "Equip any Discord avatar decoration without owning it. Cosmetic and local only — nobody else sees it.",
+    description: "Unlocks every avatar decoration in Discord's own picker and lets you wear any of them. Cosmetic and local only — nobody else sees it.",
     authors: [{ name: "illoma", id: 0n }],
     tags: ["Fun", "Fake", "CoreCord"],
     enabledByDefault: false,
     settings,
+
+    patches: [
+        {
+            // Discord's "Change avatar decoration" modal
+            find: "80,onlyAnimateOnHoverOrFocus:!",
+            replacement: [
+                {
+                    // Decorations you don't own are pushed into the "preview" section, which is
+                    // what renders the padlock. Send them to the owned section instead.
+                    match: /(\i)\.preview\.push\((\i)\)/,
+                    replace: "$1.purchase.push($2)"
+                },
+                {
+                    // Equip the decoration locally as soon as it's clicked in the grid.
+                    match: /(?<=canUsePremiumCollectibles:\i,isSelected:\i,)onSelect:\(\)=>(\i)\((\i)\)/,
+                    replace: "onSelect:()=>{$self.applyLocal($2);$1($2)}"
+                },
+                {
+                    // Footer picks "Apply" only when you own the item, otherwise it offers the
+                    // shop. Always take the Apply branch.
+                    match: /null!=\i&&\(\i\|\|!\i\)\|\|null===\i(?=\?)/,
+                    replace: "true"
+                }
+            ]
+        }
+    ],
+
+    /** Called from the patched modal when you click a decoration. */
+    applyLocal(decoration: any) {
+        const asset = decoration?.asset ?? decoration?.avatarDecoration?.asset;
+        if (!asset) return;
+        lastSkuId = decoration?.skuId ?? null;
+        settings.store.asset = asset;
+        applyDecoration();
+    },
 
     flux: {
         CONNECTION_OPEN: () => applyDecoration()
