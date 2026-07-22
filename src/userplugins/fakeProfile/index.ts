@@ -6,7 +6,11 @@
 
 import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
+import { findByPropsLazy } from "@webpack";
 import { UserProfileStore, UserStore } from "@webpack/common";
+
+/** Discord's premium gates. Flipping these only opens the UI on your own client. */
+const PremiumGates = findByPropsLazy("canUsePremiumProfileCustomization");
 
 // NOTE: Purely cosmetic and LOCAL. Your profile is rebuilt from the profile store
 // every time Discord refetches it, so rather than writing into the store we
@@ -18,6 +22,12 @@ const BANNER_SENTINEL = "ccbanner0000c0r3c0rd0000fakeprofile";
 const STYLE_ID = "cc-fakeprofile-banner";
 
 const settings = definePluginSettings({
+    unlockNitroCustomization: {
+        type: OptionType.BOOLEAN,
+        description: "Unlock the Nitro-only parts of Discord's own profile editor (banner, theme colours). Anything you're normally allowed to change still saves to Discord as usual.",
+        default: true,
+        restartNeeded: true
+    },
     bio: {
         type: OptionType.STRING,
         description: "Replace your About Me. Leave empty to keep the real one.",
@@ -98,6 +108,30 @@ function startObserver() {
     observer.observe(document.body, { childList: true, subtree: true });
 }
 
+/* Only the UI gates are flipped, never anything that would make the client talk to
+ * Discord as if you were a subscriber. Whatever you're normally allowed to change
+ * still saves for real; the premium-only bits are the ones we keep local. */
+const GATE_METHODS = ["canUsePremiumProfileCustomization", "canUseCollectibles"] as const;
+const originalGates = new Map<string, Function>();
+
+function unlockPremiumGates() {
+    if (!settings.store.unlockNitroCustomization || !PremiumGates) return;
+
+    for (const name of GATE_METHODS) {
+        const current = (PremiumGates as any)[name];
+        if (typeof current !== "function" || originalGates.has(name)) continue;
+        originalGates.set(name, current);
+        (PremiumGates as any)[name] = () => true;
+    }
+}
+
+function restorePremiumGates() {
+    for (const [name, fn] of originalGates) {
+        (PremiumGates as any)[name] = fn;
+    }
+    originalGates.clear();
+}
+
 let originalGetUserProfile: ((userId: string) => any) | null = null;
 
 function hookProfileStore() {
@@ -143,6 +177,7 @@ export default definePlugin({
 
     start() {
         hookProfileStore();
+        unlockPremiumGates();
         applyBannerStyle();
         swapBannerImages();
         startObserver();
@@ -150,6 +185,7 @@ export default definePlugin({
 
     stop() {
         unhookProfileStore();
+        restorePremiumGates();
         observer?.disconnect();
         observer = null;
         document.getElementById(STYLE_ID)?.remove();
