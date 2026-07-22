@@ -35,13 +35,24 @@ const settings = definePluginSettings({
     }
 });
 
-function sinceDate(): string {
-    const raw = settings.store.since?.trim();
-    if (raw && !Number.isNaN(Date.parse(raw))) return new Date(raw).toISOString();
+/* Must return the exact same string every time: the profile is read constantly, and
+ * a value that drifts (like "one year before now") makes React re-render forever. */
+let cachedSince = "";
+let cachedSinceKey: string | null = null;
 
-    const oneYearAgo = new Date();
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    return oneYearAgo.toISOString();
+function sinceDate(): string {
+    const raw = settings.store.since?.trim() ?? "";
+    if (raw === cachedSinceKey) return cachedSince;
+
+    cachedSinceKey = raw;
+    if (raw && !Number.isNaN(Date.parse(raw))) {
+        cachedSince = new Date(raw).toISOString();
+    } else {
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+        cachedSince = oneYearAgo.toISOString();
+    }
+    return cachedSince;
 }
 
 /** The badge is derived from the user object, so stamp it there too. */
