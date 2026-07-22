@@ -82,9 +82,11 @@ function applyTagData() {
     };
 }
 
-function applyIconStyle() {
-    const src = TAG_ICONS[settings.store.icon as number] ?? TAG_ICONS[TAG_ICON_NUMBERS[0]];
+function currentIconSrc() {
+    return TAG_ICONS[settings.store.icon as number] ?? TAG_ICONS[TAG_ICON_NUMBERS[0]];
+}
 
+function applyIconStyle() {
     let el = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
     if (!el) {
         el = document.createElement("style");
@@ -92,20 +94,80 @@ function applyIconStyle() {
         document.head.appendChild(el);
     }
 
-    const mono = settings.store.coloredIcon ? "" : "filter:brightness(0) invert(1);";
-    // Swap the native badge image (which points at our sentinel hash) for the chosen icon.
-    el.textContent = `img[src*="${SENTINEL}"]{content:url("${src}");object-fit:contain;${mono}}`;
+    const mono = settings.store.coloredIcon ? "filter:none;" : "filter:brightness(0) invert(1);";
+    // Belt and braces: CSS swap (works in Chromium) alongside the JS swap below.
+    el.textContent =
+        `img[src*="${SENTINEL}"]{content:url("${currentIconSrc()}");object-fit:contain;}` +
+        `img[data-cc-faketag]{${mono}object-fit:contain;}`;
+}
+
+/** Replace the native badge <img> src with the chosen icon. Survives React re-renders
+ *  because the observer re-runs whenever Discord rebuilds the node. */
+function swapIcons(): number {
+    const src = currentIconSrc();
+    const imgs = document.querySelectorAll<HTMLImageElement>(`img[src*="${SENTINEL}"]`);
+    imgs.forEach(img => {
+        img.dataset.ccFaketag = "1";
+        img.src = src;
+    });
+    return imgs.length;
+}
+
+let observer: MutationObserver | null = null;
+let queued = false;
+
+function startObserver() {
+    if (observer) return;
+    observer = new MutationObserver(() => {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(() => {
+            queued = false;
+            swapIcons();
+        });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+}
+
+function stopObserver() {
+    observer?.disconnect();
+    observer = null;
+}
+
+/** Prints what we can actually find in the DOM, to diagnose a missing icon. */
+function diagnose() {
+    const sentinelImgs = document.querySelectorAll(`img[src*="${SENTINEL}"]`).length;
+    const swapped = document.querySelectorAll("img[data-cc-faketag]").length;
+    const tagText = (settings.store.tag ?? "").slice(0, 4).toUpperCase();
+    const textEls = [...document.querySelectorAll<HTMLElement>("*")]
+        .filter(e => e.children.length === 0 && e.textContent?.trim() === tagText);
+
+    console.log(
+        "%c[CoreCord FakeTag] diagnostic",
+        "color:#b98ce0;font-weight:bold",
+        {
+            sentinelImgsFound: sentinelImgs,
+            alreadySwapped: swapped,
+            tagTextElementsFound: textEls.length,
+            tagPillHTML: textEls.slice(0, 2).map(e => e.parentElement?.outerHTML?.slice(0, 400))
+        }
+    );
+    if (!sentinelImgs && !swapped) {
+        console.warn("[CoreCord FakeTag] No badge <img> found. Discord probably doesn't render an image for this badge — paste the tagPillHTML above to illoma.");
+    }
 }
 
 function applyAll() {
     applyTagData();
     applyIconStyle();
+    swapIcons();
 }
 
 function clearAll() {
     const user = UserStore?.getCurrentUser();
     if (user) (user as any).primaryGuild = null;
     document.getElementById(STYLE_ID)?.remove();
+    stopObserver();
 }
 
 export default definePlugin({
@@ -123,9 +185,15 @@ export default definePlugin({
 
     start() {
         applyAll();
+        startObserver();
+        // Give Discord a moment to render the tag, then report what we found.
+        setTimeout(diagnose, 4000);
     },
 
     stop() {
         clearAll();
-    }
+    },
+
+    // Exposed so you can re-run it from the console: Vencord.Plugins.plugins.FakeTag.diagnose()
+    diagnose
 });
