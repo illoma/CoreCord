@@ -4,119 +4,115 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import definePlugin from "@utils/types";
+import { definePluginSettings } from "@api/Settings";
+import definePlugin, { OptionType } from "@utils/types";
 import { filters, waitFor } from "@webpack";
+import { UserStore } from "@webpack/common";
 
-// NOTE: Purely cosmetic and LOCAL. Discord decides what you own from the collectibles
-// purchases store, so we shadow it with a map that also contains every known product.
-// Nothing is bought and nobody else sees a difference.
-//
-// This store also feeds the decoration / nameplate / effect / frame pickers, so the
-// implementation is deliberately defensive: real purchases always win over fake ones,
-// the map is cached so its identity stays stable, and anything unexpected makes the
-// plugin quietly do nothing rather than break the pickers.
+// NOTE: Purely cosmetic and LOCAL. Discord builds "Gifts you've purchased" from
+// GiftCodeStore.getForGifterSKUAndPlan, so we append stand-in gift codes to whatever
+// it returns for you. Nothing is bought, no code is real, and nobody else sees this
+// page — it lives in your own billing settings.
 
-/** Fixed on purpose — a drifting value would re-render subscribed components forever. */
-const FAKE_PURCHASED_AT = "2024-01-01T00:00:00.000Z";
+const settings = definePluginSettings({
+    count: {
+        type: OptionType.SLIDER,
+        description: "How many fake gifts to show per product (0 turns it off)",
+        markers: [0, 1, 2, 3, 5, 10],
+        default: 3,
+        stickToMarkers: true
+    }
+});
 
-let purchasesStore: any = null;
-let originalPurchasesGetter: (() => any) | null = null;
-let productsStore: any = null;
+/** Stable so repeated reads hand back identical objects — a drifting value would
+ *  make subscribed components re-render forever. */
+const FAKE_EXPIRY = null;
+const cache = new Map<string, any[]>();
 
-let cachedReal: any = null;
-let cachedProducts: any = null;
-let cachedResult: any = null;
+function fakeGiftsFor(userId: string, skuId: string, planId: string | null) {
+    const count = Number(settings.store.count) || 0;
+    const key = `${skuId}|${planId ?? ""}|${count}`;
 
-function entriesOf(collection: any): [string, any][] {
-    if (!collection) return [];
-    if (typeof collection.entries === "function") return [...collection.entries()];
-    if (typeof collection === "object") return Object.entries(collection);
-    return [];
+    const cached = cache.get(key);
+    if (cached) return cached;
+
+    const gifts = Array.from({ length: count }, (_, i) => ({
+        code: `CORECORD${String(i + 1).padStart(3, "0")}`,
+        userId,
+        skuId,
+        subscriptionPlanId: planId ?? null,
+        uses: 0,
+        maxUses: 1,
+        redeemed: false,
+        revoked: false,
+        expiresAt: FAKE_EXPIRY,
+        storeListing: null,
+        // The real model is a class; these keep the UI from blowing up on it.
+        isExpired: () => false,
+        merge(this: any) { return this; },
+        set(this: any) { return this; }
+    }));
+
+    cache.set(key, gifts);
+    return gifts;
 }
 
-function buildMap(real: any) {
-    const products = productsStore?.products;
-    const productEntries = entriesOf(products);
-    if (!productEntries.length) return real;
+let store: any = null;
+let originalGetForGifter: ((...args: any[]) => any[]) | null = null;
+const resultCache = new Map<string, any[]>();
 
-    if (real === cachedReal && products === cachedProducts && cachedResult) return cachedResult;
+function hookStore(found: any) {
+    if (originalGetForGifter || typeof found?.getForGifterSKUAndPlan !== "function") return;
 
-    const merged = new Map<string, any>();
-    for (const [skuId] of productEntries) {
-        merged.set(String(skuId), {
-            skuId: String(skuId),
-            purchasedAt: FAKE_PURCHASED_AT,
-            type: 0
-        });
-    }
-    // Anything genuinely owned overwrites the stand-in, so real perks stay intact.
-    for (const [skuId, purchase] of entriesOf(real)) merged.set(String(skuId), purchase);
+    store = found;
+    originalGetForGifter = found.getForGifterSKUAndPlan.bind(found);
 
-    cachedReal = real;
-    cachedProducts = products;
-    cachedResult = merged;
-    return merged;
+    found.getForGifterSKUAndPlan = (userId: string, skuId: string, planId: string | null) => {
+        let real: any[] = [];
+        try {
+            real = originalGetForGifter!(userId, skuId, planId) ?? [];
+        } catch {
+            return [];
+        }
+
+        try {
+            const me = UserStore?.getCurrentUser();
+            if (!me || userId !== me.id || !Number(settings.store.count)) return real;
+
+            const key = `${skuId}|${planId ?? ""}|${settings.store.count}|${real.length}`;
+            const cached = resultCache.get(key);
+            if (cached) return cached;
+
+            const merged = [...real, ...fakeGiftsFor(userId, skuId, planId)];
+            resultCache.set(key, merged);
+            return merged;
+        } catch {
+            return real;
+        }
+    };
 }
 
-function hookPurchases(store: any) {
-    if (originalPurchasesGetter || !store) return;
-
-    // `purchases` is a getter on the prototype, so an own property shadows it.
-    let proto = Object.getPrototypeOf(store);
-    let descriptor: PropertyDescriptor | undefined;
-    while (proto && !descriptor) {
-        descriptor = Object.getOwnPropertyDescriptor(proto, "purchases");
-        proto = Object.getPrototypeOf(proto);
-    }
-
-    const getter = descriptor?.get;
-    if (typeof getter !== "function") return;
-
-    originalPurchasesGetter = getter.bind(store);
-    purchasesStore = store;
-
-    try {
-        Object.defineProperty(store, "purchases", {
-            configurable: true,
-            enumerable: false,
-            get: () => {
-                try {
-                    return buildMap(originalPurchasesGetter!());
-                } catch {
-                    return originalPurchasesGetter!();
-                }
-            }
-        });
-    } catch {
-        originalPurchasesGetter = null;
-        purchasesStore = null;
-    }
-}
-
-function unhookPurchases() {
-    if (!purchasesStore || !originalPurchasesGetter) return;
-    try {
-        delete purchasesStore.purchases;
-    } catch { /* leave it be */ }
-    purchasesStore = null;
-    originalPurchasesGetter = null;
-    cachedReal = cachedProducts = cachedResult = null;
+function unhookStore() {
+    if (store && originalGetForGifter) store.getForGifterSKUAndPlan = originalGetForGifter;
+    store = null;
+    originalGetForGifter = null;
+    cache.clear();
+    resultCache.clear();
 }
 
 export default definePlugin({
     name: "FakeInventory",
-    description: "Makes your inventory look like you own every collectible. Cosmetic and local only — nothing is bought and nobody else sees it.",
+    description: "Fills 'Gifts you've purchased' with stand-in gifts. Cosmetic and local only — nothing is bought and only you can see that page.",
     authors: [{ name: "illoma", id: 0n }],
     tags: ["Fun", "Fake", "CoreCord"],
     enabledByDefault: false,
+    settings,
 
     start() {
-        waitFor(filters.byProps("products", "categories"), (mod: any) => { productsStore = mod; });
-        waitFor(filters.byProps("purchases"), (mod: any) => hookPurchases(mod));
+        waitFor(filters.byProps("getForGifterSKUAndPlan"), (mod: any) => hookStore(mod));
     },
 
     stop() {
-        unhookPurchases();
-        productsStore = null;
+        unhookStore();
     }
 });
