@@ -1,0 +1,78 @@
+/**
+ * @name CoreCord Purple
+ * @author illoma
+ * @description Purple accent theme for CoreCord. Recolors Discord's blurple to CoreCord violet.
+ * @version 1.0.0
+ */
+
+/* ------------------------------------------------------------------ *
+ *  CoreCord palette                                                  *
+ * ------------------------------------------------------------------ */
+:root {
+    --cc-accent:        #7b2fbe;
+    --cc-accent-hover:  #6b28a6;
+    --cc-accent-active: #5a218c;
+    --cc-accent-light:  #b98ce0;
+    --cc-accent-lighter:#d3b8ec;
+}
+
+/* Recolor the Discord "brand" (blurple) ramp to purple.
+   Both the modern (--brand-###) and legacy (--brand-experiment*) tokens
+   are overridden so accents stay purple across Discord updates. */
+.theme-dark,
+.theme-light,
+:root {
+    /* modern brand ramp */
+    --brand-100: #efe4f9;
+    --brand-200: #dcc4f2;
+    --brand-300: #c9a4ea;
+    --brand-345: #bd8fe4;
+    --brand-360: #b98ce0;
+    --brand-400: #a664dc;
+    --brand-430: #9a4fd4;
+    --brand-460: #8e3fcb;
+    --brand-500: #7b2fbe;
+    --brand-530: #722aae;
+    --brand-560: #6b28a6;
+    --brand-600: #5a218c;
+    --brand-630: #521f83;
+    --brand-660: #4a1c75;
+    --brand-700: #421967;
+    --brand-800: #381359;
+    --brand-900: #2a0f45;
+
+    /* legacy experiment tokens (still referenced in many components) */
+    --brand-experiment:      #7b2fbe;
+    --brand-experiment-100:  #efe4f9;
+    --brand-experiment-200:  #dcc4f2;
+    --brand-experiment-300:  #c9a4ea;
+    --brand-experiment-360:  #b98ce0;
+    --brand-experiment-400:  #a664dc;
+    --brand-experiment-500:  #7b2fbe;
+    --brand-experiment-560:  #6b28a6;
+    --brand-experiment-600:  #5a218c;
+    --brand-experiment-700:  #421967;
+    --brand-experiment-800:  #381359;
+    --brand-experiment-900:  #2a0f45;
+
+    /* semantic accents */
+    --text-link:                 var(--cc-accent-light);
+    --text-link-low-saturation:  var(--cc-accent-light);
+    --mention-foreground:        #ffffff;
+    --mention-background:         rgba(123, 47, 190, 0.30);
+
+    /* filled brand buttons */
+    --button-filled-brand-background:        var(--cc-accent);
+    --button-filled-brand-background-hover:  var(--cc-accent-hover);
+    --button-filled-brand-background-active: var(--cc-accent-active);
+
+    /* misc accents */
+    --control-brand-foreground:      var(--cc-accent-light);
+    --info-help-foreground:          var(--cc-accent-light);
+    --focus-primary:                 var(--cc-accent);
+}
+
+/* Purple selection highlight */
+::selection {
+    background: rgba(123, 47, 190, 0.40);
+}
