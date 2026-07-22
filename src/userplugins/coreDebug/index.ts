@@ -7,7 +7,7 @@
 import { ApplicationCommandInputType, ApplicationCommandOptionType, findOption, sendBotMessage } from "@api/Commands";
 import { copyToClipboard } from "@utils/clipboard";
 import definePlugin from "@utils/types";
-import { search, wreq } from "@webpack";
+import { findByProps, search, wreq } from "@webpack";
 import { UserProfileStore, UserStore } from "@webpack/common";
 import { SYM_PATCHED_BY } from "../../webpack/patchWebpack";
 
@@ -48,6 +48,59 @@ export default definePlugin({
     enabledByDefault: true,
 
     commands: [
+        {
+            name: "ccfind",
+            description: "Find a Discord module by prop names and list what's on it",
+            inputType: ApplicationCommandInputType.BUILT_IN,
+            options: [
+                {
+                    name: "props",
+                    description: "Comma-separated prop names the module must have",
+                    type: ApplicationCommandOptionType.STRING,
+                    required: true
+                }
+            ],
+            execute: (args, ctx) => {
+                const props = findOption<string>(args, "props", "")
+                    .split(",")
+                    .map(s => s.trim())
+                    .filter(Boolean);
+
+                if (!props.length) {
+                    return sendBotMessage(ctx.channel.id, { content: "❌ Give me at least one prop name." });
+                }
+
+                let mod: any;
+                try {
+                    mod = findByProps(...props);
+                } catch (err) {
+                    return sendBotMessage(ctx.channel.id, { content: `❌ Lookup threw: \`${String(err)}\`` });
+                }
+
+                if (!mod) {
+                    return sendBotMessage(ctx.channel.id, {
+                        content: `❌ **No module** has all of \`${props.join(", ")}\`.\nThe name may be wrong, or the chunk isn't loaded yet — open the relevant UI once and retry.`
+                    });
+                }
+
+                const keys = Object.keys(mod).sort();
+                const detail = keys
+                    .map(k => {
+                        let t = "?";
+                        try {
+                            t = typeof mod[k];
+                        } catch { /* getter threw */ }
+                        return `${k}: ${t}`;
+                    })
+                    .join("\n");
+
+                copyToClipboard(detail);
+
+                return sendBotMessage(ctx.channel.id, {
+                    content: `✅ **Found** a module with \`${props.join(", ")}\` — ${keys.length} keys (copied to clipboard):\n\`\`\`\n${detail.slice(0, 1200)}\n\`\`\``
+                });
+            }
+        },
         {
             name: "ccprofile",
             description: "Copy your own user + profile objects to the clipboard (for debugging)",
