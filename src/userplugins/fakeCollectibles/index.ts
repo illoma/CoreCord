@@ -32,8 +32,7 @@ export default definePlugin({
         },
         {
             // Nameplates picker
-            find: "isCategoryReward",
-            noWarn: true,
+            find: "selectedNameplate",
             replacement: {
                 match: /(\i)\.preview\.push\((\i)\)/,
                 replace: "$1.purchase.push($2)"
@@ -41,8 +40,7 @@ export default definePlugin({
         },
         {
             // Profile effects picker
-            find: "9x1v/p",
-            noWarn: true,
+            find: "selectedProfileEffectRef",
             replacement: {
                 match: /(\i)\.preview\.push\((\i)\)/,
                 replace: "$1.purchase.push($2)"
