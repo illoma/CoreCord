@@ -6,11 +6,7 @@
 
 import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
-import { findByPropsLazy } from "@webpack";
 import { UserProfileStore, UserStore } from "@webpack/common";
-
-/** Discord's premium gates. Flipping these only opens the UI on your own client. */
-const PremiumGates = findByPropsLazy("canUsePremiumProfileCustomization");
 
 // NOTE: Purely cosmetic and LOCAL. Your profile is rebuilt from the profile store
 // every time Discord refetches it, so rather than writing into the store we
@@ -108,30 +104,6 @@ function startObserver() {
     observer.observe(document.body, { childList: true, subtree: true });
 }
 
-/* Only the UI gates are flipped, never anything that would make the client talk to
- * Discord as if you were a subscriber. Whatever you're normally allowed to change
- * still saves for real; the premium-only bits are the ones we keep local. */
-const GATE_METHODS = ["canUsePremiumProfileCustomization", "canUseCollectibles"] as const;
-const originalGates = new Map<string, Function>();
-
-function unlockPremiumGates() {
-    if (!settings.store.unlockNitroCustomization || !PremiumGates) return;
-
-    for (const name of GATE_METHODS) {
-        const current = (PremiumGates as any)[name];
-        if (typeof current !== "function" || originalGates.has(name)) continue;
-        originalGates.set(name, current);
-        (PremiumGates as any)[name] = () => true;
-    }
-}
-
-function restorePremiumGates() {
-    for (const [name, fn] of originalGates) {
-        (PremiumGates as any)[name] = fn;
-    }
-    originalGates.clear();
-}
-
 let originalGetUserProfile: ((userId: string) => any) | null = null;
 
 function hookProfileStore() {
@@ -175,9 +147,32 @@ export default definePlugin({
     enabledByDefault: false,
     settings,
 
+    // Webpack exports are getter-only and non-configurable, so these gates can't be
+    // reassigned at runtime — the export table itself has to be rewritten. Only the
+    // client-side UI checks are flipped; nothing here tells Discord you're a subscriber.
+    patches: [
+        {
+            find: "canUsePremiumProfileCustomization",
+            predicate: () => settings.store.unlockNitroCustomization,
+            replacement: [
+                {
+                    match: /canUsePremiumProfileCustomization:\(\)=>\i/,
+                    replace: "canUsePremiumProfileCustomization:()=>()=>!0"
+                },
+                {
+                    match: /canUsePremiumGuildMemberProfile:\(\)=>\i/,
+                    replace: "canUsePremiumGuildMemberProfile:()=>()=>!0"
+                },
+                {
+                    match: /canUseCollectibles:\(\)=>\i/,
+                    replace: "canUseCollectibles:()=>()=>!0"
+                }
+            ]
+        }
+    ],
+
     start() {
         hookProfileStore();
-        unlockPremiumGates();
         applyBannerStyle();
         swapBannerImages();
         startObserver();
@@ -185,7 +180,6 @@ export default definePlugin({
 
     stop() {
         unhookProfileStore();
-        restorePremiumGates();
         observer?.disconnect();
         observer = null;
         document.getElementById(STYLE_ID)?.remove();
