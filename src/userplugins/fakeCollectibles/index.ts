@@ -25,10 +25,18 @@ export default definePlugin({
         {
             // Profile frames picker
             find: "useProfileFrameSections",
-            replacement: {
-                match: /(\i)\.preview\.push\((\i)\)/,
-                replace: "$1.purchase.push($2)"
-            }
+            replacement: [
+                {
+                    match: /(\i)\.preview\.push\((\i)\)/,
+                    replace: "$1.purchase.push($2)"
+                },
+                {
+                    // Footer offers "Apply" only for owned frames, otherwise the shop.
+                    // Always take the Apply branch.
+                    match: /null!=\i&&\(\i\|\|!\i\)\|\|null===\i(?=\?)/,
+                    replace: "true"
+                }
+            ]
         },
         {
             // Nameplates picker
