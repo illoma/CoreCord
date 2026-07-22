@@ -44,6 +44,16 @@ const settings = definePluginSettings({
         description: "Tag text shown next to your name (Discord tags are up to 4 chars).",
         default: "CORE"
     },
+    color: {
+        type: OptionType.STRING,
+        description: "Pill background color (hex, e.g. #7b2fbe). Leave the icon's own colors intact.",
+        default: "#7b2fbe"
+    },
+    coloredIcon: {
+        type: OptionType.BOOLEAN,
+        description: "Show the icon in its original colors. Turn off for a flat white (monochrome) icon that matches the text.",
+        default: true
+    },
     icon: {
         type: OptionType.COMPONENT,
         description: "Pick a tag icon",
@@ -53,13 +63,19 @@ const settings = definePluginSettings({
 });
 
 function FakeTagPill() {
-    const { tag, icon } = settings.use(["tag", "icon"]);
+    const { tag, icon, color, coloredIcon } = settings.use(["tag", "icon", "color", "coloredIcon"]);
     const src = TAG_ICONS[icon as number] ?? TAG_ICONS[TAG_ICON_NUMBERS[0]];
     const text = (tag ?? "").slice(0, 4).toUpperCase();
 
     return (
-        <span className="cc-faketag" aria-label={`Tag: ${text}`}>
-            <img className="cc-faketag-icon" src={src} width={12} height={12} alt="" />
+        <span className="cc-faketag" style={{ background: color || "#7b2fbe" }} aria-label={`Tag: ${text}`}>
+            <img
+                className={"cc-faketag-icon" + (coloredIcon ? "" : " cc-faketag-icon-mono")}
+                src={src}
+                width={12}
+                height={12}
+                alt=""
+            />
             {text && <span className="cc-faketag-text">{text}</span>}
         </span>
     );

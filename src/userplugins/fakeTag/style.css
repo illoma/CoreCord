@@ -22,6 +22,11 @@
     height: 12px;
 }
 
+/* Flat white (monochrome) icon variant — turns the colored SVG into a white silhouette */
+.cc-faketag-icon-mono {
+    filter: brightness(0) invert(1);
+}
+
 .cc-faketag-text {
     letter-spacing: 0.5px;
 }
