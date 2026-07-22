@@ -6,7 +6,7 @@
 
 import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
-import { UserStore } from "@webpack/common";
+import { UserProfileStore, UserStore } from "@webpack/common";
 
 // NOTE: Purely cosmetic and LOCAL.
 //
@@ -41,8 +41,55 @@ const settings = definePluginSettings({
                 </div>
             );
         }
+    },
+    effect: {
+        type: OptionType.COMPONENT,
+        description: "Profile effect currently forced on your own profile",
+        default: null as any,
+        component: () => {
+            const { effect } = settings.use(["effect"]);
+            return (
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    {effect
+                        ? `Profile effect: ${(effect as any).title ?? (effect as any).skuId} — pick "None" in Discord's picker to clear it.`
+                        : "No profile effect forced. Pick one in Settings → Profile → Profile effect."}
+                </div>
+            );
+        }
     }
 });
+
+/* --- Profile effects -----------------------------------------------------
+ * Effects don't live on the user object, they come from the profile store and
+ * get overwritten whenever Discord refetches your profile. So instead of writing
+ * into the store, we intercept the read and stamp our choice onto the profile on
+ * the way out. The profile object is mutated in place to keep its identity stable,
+ * otherwise components subscribed to the store would re-render forever.
+ */
+let originalGetUserProfile: ((userId: string) => any) | null = null;
+
+function hookProfileStore() {
+    if (originalGetUserProfile || !UserProfileStore?.getUserProfile) return;
+
+    originalGetUserProfile = UserProfileStore.getUserProfile.bind(UserProfileStore);
+    (UserProfileStore as any).getUserProfile = (userId: string) => {
+        const profile: any = originalGetUserProfile!(userId);
+        const effect = settings.store.effect as any;
+        const me = UserStore?.getCurrentUser();
+
+        if (profile && effect && me && userId === me.id) {
+            profile.profileEffectId = effect.skuId;
+            profile.profileEffect = effect;
+        }
+        return profile;
+    };
+}
+
+function unhookProfileStore() {
+    if (!originalGetUserProfile) return;
+    (UserProfileStore as any).getUserProfile = originalGetUserProfile;
+    originalGetUserProfile = null;
+}
 
 function applyStored() {
     const user: any = UserStore?.getCurrentUser();
@@ -101,6 +148,12 @@ export default definePlugin({
                     match: /(\i)\.preview\.push\((\i)\)/,
                     replace: "$1.purchase.push($2)"
                 },
+                {
+                    // Remember the clicked effect. Only the effect item is followed by
+                    // canUsePremiumCollectibles, so this can't hit "None" or "Shop".
+                    match: /onSelect:\(\)=>(\i)\((\i)\)(?=,canUsePremiumCollectibles)/,
+                    replace: "onSelect:()=>{$self.applyEffect($2);$1($2)}"
+                },
                 { ...alwaysOfferApply }
             ]
         }
@@ -112,15 +165,23 @@ export default definePlugin({
         applyStored();
     },
 
+    /** Called from the patched profile effect picker when you click one. */
+    applyEffect(item: any) {
+        settings.store.effect = item ?? null;
+    },
+
     flux: {
         CONNECTION_OPEN: () => applyStored()
     },
 
     start() {
         applyStored();
+        hookProfileStore();
     },
 
     stop() {
+        unhookProfileStore();
+
         const user: any = UserStore?.getCurrentUser();
         if (user?.collectibles?.nameplate) {
             const { nameplate: _drop, ...rest } = user.collectibles;
