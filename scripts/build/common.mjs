@@ -145,7 +145,11 @@ export const globPlugins = kind => ({
         });
 
         build.onLoad({ filter, namespace: "import-plugins" }, async () => {
-            const pluginDirs = ["plugins/_api", "plugins/_core", "plugins", "userplugins"];
+            // CoreCord: base Vencord feature plugins ("plugins") are excluded from the build.
+            // Only the required APIs (_api), core (_core) and our own plugins (userplugins) are
+            // compiled. The upstream plugin files are kept on disk so `git pull upstream` still
+            // works — to re-enable them, add "plugins" back to this list.
+            const pluginDirs = ["plugins/_api", "plugins/_core", "userplugins"];
             let code = "";
             let pluginsCode = "\n";
             let metaCode = "\n";
