@@ -2,10 +2,10 @@
     "manifest_version": 3,
     "minimum_chrome_version": "111",
 
-    "name": "Vencord Web",
-    "description": "The cutest Discord mod now in your browser",
-    "author": "Vendicated",
-    "homepage_url": "https://github.com/Vendicated/Vencord",
+    "name": "CoreCord Web",
+    "description": "CoreCord — a Discord client mod, now in your browser",
+    "author": "illoma",
+    "homepage_url": "https://github.com/illoma/CoreCord",
     "icons": {
         "128": "icon.png"
     },
