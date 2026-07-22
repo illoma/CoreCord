@@ -58,6 +58,18 @@ export default definePlugin({
                     description: "Comma-separated prop names the module must have",
                     type: ApplicationCommandOptionType.STRING,
                     required: true
+                },
+                {
+                    name: "call",
+                    description: "Also call these functions (comma-separated) with your user and show what they return",
+                    type: ApplicationCommandOptionType.STRING,
+                    required: false
+                },
+                {
+                    name: "filter",
+                    description: "Only list keys containing this text",
+                    type: ApplicationCommandOptionType.STRING,
+                    required: false
                 }
             ],
             execute: (args, ctx) => {
@@ -83,7 +95,11 @@ export default definePlugin({
                     });
                 }
 
-                const keys = Object.keys(mod).sort();
+                const keyFilter = findOption<string>(args, "filter", "").toLowerCase();
+                const keys = Object.keys(mod)
+                    .filter(k => !keyFilter || k.toLowerCase().includes(keyFilter))
+                    .sort();
+
                 const detail = keys
                     .map(k => {
                         let t = "?";
@@ -94,10 +110,30 @@ export default definePlugin({
                     })
                     .join("\n");
 
-                copyToClipboard(detail);
+                // Calling the gates is the only way to know whether a patch really took.
+                const toCall = findOption<string>(args, "call", "")
+                    .split(",")
+                    .map(s => s.trim())
+                    .filter(Boolean);
+
+                const results = toCall.map(name => {
+                    try {
+                        const fn = mod[name];
+                        if (typeof fn !== "function") return `${name}: <not a function>`;
+                        return `${name}() => ${String(fn(UserStore?.getCurrentUser()))}`;
+                    } catch (err) {
+                        return `${name}: threw ${String(err).slice(0, 80)}`;
+                    }
+                });
+
+                copyToClipboard([results.join("\n"), detail].filter(Boolean).join("\n\n"));
 
                 return sendBotMessage(ctx.channel.id, {
-                    content: `✅ **Found** a module with \`${props.join(", ")}\` — ${keys.length} keys (copied to clipboard):\n\`\`\`\n${detail.slice(0, 1200)}\n\`\`\``
+                    content: [
+                        `✅ **Found** a module with \`${props.join(", ")}\` — ${keys.length} key(s) listed (all copied to clipboard).`,
+                        results.length ? `\n**Calls:**\n\`\`\`\n${results.join("\n").slice(0, 700)}\n\`\`\`` : "",
+                        `\n\`\`\`\n${detail.slice(0, 900)}\n\`\`\``
+                    ].filter(Boolean).join("")
                 });
             }
         },
